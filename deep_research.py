@@ -1,17 +1,23 @@
 import os
-import json
 import asyncio
 from typing import List, Optional, Callable, Dict
 from pydantic import BaseModel, Field
-from dataclasses import dataclass
-import logging
+from dataclasses import dataclass, field
 
 from openai import OpenAI
 from firecrawl import FirecrawlApp  # ← 公式 Python SDK
 from datetime import datetime, timezone
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # 「o4-mini」をデフォルトに、環境変数で上書き可
 LLM_MODEL = os.getenv("LLM_MODEL", "o4-mini")
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+)
+firecrawl = FirecrawlApp(api_key=os.getenv("FIRECRAWL_KEY"))
+
 
 def system_prompt() -> str:
     """
@@ -32,12 +38,6 @@ def system_prompt() -> str:
 - You may use high levels of speculation or prediction; just flag it for me."""
 
 
-# 環境変数から API キーを取得
-os.environ["OPENAI_API_KEY"] = ""
-client = OpenAI()
-
-firecrawl = FirecrawlApp(api_key=os.getenv("FIRECRAWL_KEY", ""))
-
 @dataclass
 class ResearchProgress:
     current_depth: int
@@ -47,6 +47,7 @@ class ResearchProgress:
     total_queries: int = 0
     completed_queries: int = 0
     current_query: Optional[str] = None
+    new_learnings: list[str] = field(default_factory=list)
 
 @dataclass
 class ResearchResult:
@@ -229,37 +230,117 @@ async def deep_research(
     visited_urls: Optional[List[str]] = None,
     on_progress: Optional[Callable[[ResearchProgress], None]] = None,
 ) -> ResearchResult:
+    """
+    再帰的にウェブリサーチを実行し、「幅 (breadth) × 深さ (depth)」で検索範囲を
+    コントロールする関数。
+
+    パラメータ
+    ----------
+    query : str
+        初期の検索クエリ（ユーザープロンプト）。
+    breadth : int
+        幅。各深さレイヤーで生成する SERP クエリの本数。
+        深さが進むごとに `breadth // 2` に縮小し、爆発的な分岐を防ぐ。
+    depth : int
+        深さ。1 なら 1 レイヤーのみ、2 ならさらにその下のレイヤーへ再帰する。
+    learnings : list[str] | None
+        これまでに得た知見の蓄積。再帰で下層へ渡し、最後に重複除去して返す。
+    visited_urls : list[str] | None
+        既にクロールした URL の集合。最終結果用なので途中処理では使わない。
+    on_progress : Callable[[ResearchProgress], None] | None
+        進捗を通知するコールバック。呼び出しタイミングは下記 3 つ。  
+        1. 最初の SERP クエリを生成した直後  
+        2. 各クエリを処理し「新しい learnings」が得られた直後  
+        3. 深さ・幅を更新した直後  
+        `ResearchProgress.new_learnings` に **今回増えた分だけ** が入るので、
+        フロントエンドでリアルタイムに追加表示できる。
+
+    戻り値
+    ------
+    ResearchResult
+        - `learnings` : 最終的な知見（重複除去済み）  
+        - `visited_urls` : 参照した全 URL（重複除去済み）
+
+    処理フロー
+    ----------
+    1. `generate_serp_queries()` で次に検索すべきキーワードを LLM で生成  
+    2. 各キーワードについて:  
+       2-a. `firecrawl.search()` でページをクロール  
+       2-b. `process_serp_result()` で知見と次の調査質問を抽出  
+       2-c. `on_progress()` に新しい知見を通知  
+    3. `depth > 1` の場合は、質問リストをまとめた新しいクエリを作り再帰呼び出し  
+       （breadth を半減、depth を 1 減らす）  
+    4. 末端まで到達したら各レイヤーから `ResearchResult` を集約し、  
+       URL と知見をそれぞれ集合演算で重複排除して返す。
+
+    備考
+    ----
+    - 同一レイヤーの SERP クエリは `asyncio.gather()` で並列実行し高速化。  
+    - 再帰は逐次進むため、深さ方向の制御はシンプル。  
+    - `on_progress` を使えば Streamlit などで進捗バーと知見ログを
+      同期的に更新できる。
+    """
+
     learnings = learnings or []
     visited_urls = visited_urls or []
-    progress = ResearchProgress(depth, depth, breadth, breadth)
 
-    # SERP クエリ生成
+    # Progress オブジェクト生成
+    progress = ResearchProgress(
+        current_depth=depth,
+        total_depth=depth,
+        current_breadth=breadth,
+        total_breadth=breadth,
+    )
+
+    # ① 最初の SERP クエリ生成
     serp_queries = await generate_serp_queries(query, breadth, learnings)
     progress.total_queries = len(serp_queries)
     progress.current_query = serp_queries[0]["query"] if serp_queries else None
-    if on_progress: on_progress(progress)
 
+    # ── コールバック：new_learnings はまだ空 ──
+    if on_progress:
+        on_progress(progress)
+
+    # ② 各クエリを処理する補助コルーチン ----------------
     async def handle_one(serp: Dict[str, str]) -> ResearchResult:
-        # *同期* search をそのまま呼ぶ
+        # Firecrawl 検索（同期 API）
         search_result = firecrawl.search(serp["query"], limit=breadth)
 
         new_urls = [item["url"] for item in search_result.data]
+
+        # SERP 結果を解析し、learnings と follow-up 質問を抽出
         proc = await process_serp_result(
-            serp["query"], search_result, num_learnings=breadth, num_follow_up=breadth // 2
+            serp["query"],
+            search_result,
+            num_learnings=breadth,
+            num_follow_up=breadth // 2,
         )
 
+        # 最新 learnings を progress にセット → UI へ即通知
+        progress.new_learnings = proc["learnings"]
+        if on_progress:
+            on_progress(progress)
+
+        # 累積
         all_learnings = learnings + proc["learnings"]
         all_urls = visited_urls + new_urls
 
+        # ---------- 深さが残っている場合は再帰 ----------
         if depth - 1 > 0:
             next_query = (
                 f"Previous research goal: {serp.get('researchGoal')}\n"
                 + "\n".join(f"- {q}" for q in proc["followUpQuestions"])
             )
+
+            # 進捗更新
             progress.completed_queries += 1
             progress.current_depth = depth - 1
             progress.current_breadth = breadth // 2
-            if on_progress: on_progress(progress)
+            # 直後の再帰で new_learnings が再度上書きされるので、一旦空に
+            progress.new_learnings = []
+
+            if on_progress:
+                on_progress(progress)
 
             return await deep_research(
                 next_query,
@@ -269,19 +350,25 @@ async def deep_research(
                 visited_urls=all_urls,
                 on_progress=on_progress,
             )
-        else:
-            progress.completed_queries += 1
-            progress.current_depth = 0
-            if on_progress: on_progress(progress)
-            return ResearchResult(all_learnings, all_urls)
 
-    # 並列に走らせたい場合は asyncio.to_thread を噛ませても OK
+        # ---------- 末端ノード ----------
+        progress.completed_queries += 1
+        progress.current_depth = 0
+        progress.new_learnings = []        # 最後は空にしておく
+        if on_progress:
+            on_progress(progress)
+
+        return ResearchResult(all_learnings, all_urls)
+
+    # ③ すべての SERP クエリを並列実行
     results = await asyncio.gather(*(handle_one(q) for q in serp_queries))
 
-    # 重複排除してマージ
+    # ④ 重複排除して統合
     final_learnings = list({l for r in results for l in r.learnings})
     final_urls      = list({u for r in results for u in r.visited_urls})
+
     return ResearchResult(final_learnings, final_urls)
+
 
 
 # CLIエントリーポイント

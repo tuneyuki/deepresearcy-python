@@ -4,8 +4,6 @@
 
 openai
 pydantic
-langchain
-langchain-core
-langchain-openai
-langgraph
 firecrawl-py
+streamlit
+python-dotenv
