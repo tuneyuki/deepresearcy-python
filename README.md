@@ -41,30 +41,24 @@ streamlit run app.py
 
 1. **リポジトリをクローン**
 
-   ```bash
-   ```
-
+```bash
 cd deep‑research‑assistant
-
-````
+```
 
 2. **仮想環境を作成 & 依存インストール**
 
-   ```bash
+```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows は .venv\Scripts\activate
 pip install -r requirements.txt
-````
+```
 
 3. **環境変数を設定**  ‑ 例として `.env` を推奨
 
-   ```dotenv
-   ```
-
+```dotenv
 OPENAI\_API\_KEY=sk-xxxxxxxxxxxxxxxx
 FIRECRAWL\_KEY=fc-xxxxxxxxxxxxxxxx
-
-````
+```
 
    > `python‑dotenv` が自動で読み込みます。
 
@@ -74,7 +68,7 @@ FIRECRAWL\_KEY=fc-xxxxxxxxxxxxxxxx
 
 ```bash
 streamlit run app.py
-````
+```
 
 ブラウザが開いたら:
 
