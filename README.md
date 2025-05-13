@@ -28,6 +28,7 @@ AI を活用して **マルチステップのリサーチ** を自動化する S
 streamlit run app.py
 ```
 
+![Deep Research Prototype](./public/images/demo.png)
 
 ---
 
