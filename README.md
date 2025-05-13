@@ -99,12 +99,6 @@ streamlit run app.py
 
 ## デプロイ Tips
 
-### Streamlit Community Cloud
-
-1. 本リポジトリを GitHub にプッシュ
-2. Cloud ダッシュボードで New app → リポジトリ/ブランチ を選択
-3. "Advanced settings" で `OPENAI_API_KEY` と `FIRECRAWL_KEY` を Secrets に追加
-
 ### Docker
 
 ```Dockerfile
@@ -128,7 +122,3 @@ MIT License
 
 * **[OpenAI](https://openai.com/)** – LLM モデル
 * **[Firecrawl](https://firecrawl.dev/)** – Web クロール API
-
----
-
-> Made with ❤️  by Tsuneyuki ITO
