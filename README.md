@@ -14,6 +14,12 @@ AI を活用して **マルチステップのリサーチ** を自動化する S
     のどちらかを選択可能
 * Firecrawl + OpenAI API キーを環境変数または `.env` で設定
 
+### 幅（breadth）について
+* 元のユーザー質問の調査切り口を増やす
+
+### 深さ（depth）について
+* 調査で得られたfactに対し、フォローアップ（LLMでFollow-up質問生成）し再帰的に調査実施
+
 ---
 
 ## デモ
@@ -56,8 +62,8 @@ pip install -r requirements.txt
 3. **環境変数を設定**  ‑ 例として `.env` を推奨
 
 ```dotenv
-OPENAI\_API\_KEY=sk-xxxxxxxxxxxxxxxx
-FIRECRAWL\_KEY=fc-xxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+FIRECRAWL_KEY=fc-xxxxxxxxxxxxxxxx
 ```
 
    > `python‑dotenv` が自動で読み込みます。

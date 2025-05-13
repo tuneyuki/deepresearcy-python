@@ -56,7 +56,7 @@ def _run_async(coro):
 # Streamlit Layout
 # -----------------------------------------------------------------------------
 
-st.set_page_config(page_title="Deep Research Assistant", layout="wide")
+st.set_page_config(page_title="Deep Research Prototype", layout="wide")
 st.title("🔍 Deep Research prototype")
 st.markdown(
     "OpenAI o4-miniを使って、幅／深さをコントロールしながらウェブリサーチを行います。"
@@ -68,9 +68,9 @@ with st.form("research_form"):
 
     col1, col2 = st.columns(2)
     with col1:
-        breadth: int = st.slider("探索幅", 2, 5, 3)
+        breadth: int = st.slider("探索幅（検索のバリエーション）", 2, 5, 3)
     with col2:
-        depth: int = st.slider("探索の深さ", 1, 3, 2)
+        depth: int = st.slider("探索の深さ（調査結果をさらに深掘り）", 1, 3, 2)
 
     output_type = st.radio("Output", ["詳細レポート", "シンプル回答"], horizontal=True)
     submitted = st.form_submit_button("🚀 Start research")
@@ -79,26 +79,27 @@ with st.form("research_form"):
 # Run research when form submitted
 # -----------------------------------------------------------------------------
 if submitted and query.strip():
-    # Clear previous learnings log
-    st.session_state["_learn_md"] = ""
-
-    st.info("Research started – watch progress below…")
+    st.info("調査実施中...")
 
     # Placeholders ------------------------------------------
     prog_bar_ph   = st.progress(0.0)
     status_box_ph = st.empty()
-    learn_expander = st.expander("📚 research fact", expanded=False)
+    learn_expander = st.expander("📚 調査データ", expanded=False)
 
     # Callback ------------------------------------------------
     def _on_progress(p: ResearchProgress):
         _update_progress_widgets(p, prog_bar_ph, status_box_ph)
 
-        if p.new_learnings:
-            # Append to session‑state markdown buffer
-            prev = st.session_state.get("_learn_md", "")
-            prev += "\n".join(f"- {l}" for l in p.new_learnings) + "\n"
-            st.session_state["_learn_md"] = prev
-            learn_expander.markdown(prev)
+        if not p.new_learnings:
+            return
+        
+
+        # ★ ここをシンプルに：受け取ったリストをそのまま Markdown に
+        md = "\n".join(f"- {l}" for l in p.new_learnings)
+
+        # ★ Expander を “上書き” 表示
+        learn_expander.markdown(md)
+
 
     # Driver --------------------------------------------------
     async def _driver() -> ResearchResult:
@@ -113,21 +114,18 @@ if submitted and query.strip():
 
     # Summarise ----------------------------------------------
     async def _summarise():
-        if output_type == "Detailed report":
+        if output_type == "詳細レポート":
             return await write_final_report(query, research_result.learnings, research_result.visited_urls)
         return await write_final_answer(query, research_result.learnings)
 
-    final_output = _run_async(_summarise())
+    # Spinner で「回答生成中」を可視化
+    with st.spinner("📝 回答生成中です..."):
+        final_output = _run_async(_summarise())
 
     # Display final output -----------------------------------
-    if output_type == "Detailed report":
+    if output_type == "詳細レポート":
         st.markdown("## 📄 Final Report")
         st.markdown(final_output, unsafe_allow_html=True)
     else:
         st.markdown("## ✅ Final Answer")
         st.success(final_output)
-
-    # Sources -------------------------------------------------
-    if research_result.visited_urls:
-        with st.expander("🔗 Sources"):
-            st.markdown("\n".join(f"- {url}" for url in research_result.visited_urls))

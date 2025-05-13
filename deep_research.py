@@ -84,7 +84,7 @@ class ProcResponse(BaseModel):
     )
     followUpQuestions: List[str] = Field(
         ...,
-        description="List of follow-up questions to research the topic further, max of the requested number"
+        description="List of follow-up questions to research the topic further, max of 3."
     )
 
 # ③ 最終レポート用のスキーマ
@@ -131,7 +131,6 @@ async def process_serp_result(
     query: str,
     search_result,
     num_learnings: int = 3,
-    num_follow_up: int = 3,
 ) -> Dict[str, List[str]]:
     # item は dict なので ['description'] で取得
     contents = [item["description"] for item in search_result.data]
@@ -180,7 +179,7 @@ async def write_final_report(
 ) -> str:
     learnings_str = "\n".join(f"<learning>\n{l}\n</learning>" for l in learnings)
     user_message = (
-        f"Given the following prompt from the user, write a final report on the topic using the learnings from research. Make it as detailed as possible, aim for 3 or more pages, include ALL the learnings from research:\n\n"
+        f"Given the following prompt from the user, write a final report on the topic using the learnings from research. Write a final report with prompt language. Make it as detailed as possible, aim for 3 or more pages, include ALL the learnings from research:\n\n"
         f"<prompt>{prompt}</prompt>\n\n"
         f"<learnings>\n{learnings_str}\n</learnings>"
     )
@@ -204,7 +203,7 @@ async def write_final_answer(
 ) -> str:
     learnings_str = "\n".join(f"<learning>\n{l}\n</learning>" for l in learnings)
     user_message = (
-        f"Given the following prompt from the user, write a final answer on the topic using the learnings from research. Follow the format specified in the prompt. Do not yap or babble or include any other text than the answer besides the format specified in the prompt. Keep the answer as concise as possible - usually it should be just a few words or maximum a sentence. Try to follow the format specified in the prompt.\n\n"
+        f"Given the following prompt from the user, write a final answer on the topic using the learnings from research. Write a final report with prompt language. Follow the format specified in the prompt. Do not yap or babble or include any other text than the answer besides the format specified in the prompt. Keep the answer as concise as possible - usually it should be just a few words or maximum a sentence. Try to follow the format specified in the prompt.\n\n"
         f"<prompt>{prompt}</prompt>\n\n"
         f"<learnings>\n{learnings_str}\n</learnings>"
     )
@@ -313,7 +312,6 @@ async def deep_research(
             serp["query"],
             search_result,
             num_learnings=breadth,
-            num_follow_up=breadth // 2,
         )
 
         # 最新 learnings を progress にセット → UI へ即通知
