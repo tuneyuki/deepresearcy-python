@@ -1,6 +1,6 @@
 # Deep Research Assistant
 
-AI を活用して **マルチステップのリサーチ** を自動化する Streamlit アプリです。Firecrawl で Web をクロールし、OpenAI モデルで SERP 生成・知見抽出・レポート作成までを行います。
+AI を活用して **マルチステップのリサーチ** を自動化する Streamlit アプリです。Firecrawl / Tavily で Web をクロールし、OpenAI モデルで SERP 生成・知見抽出・レポート作成までを行います。
 
 ---
 
@@ -8,17 +8,22 @@ AI を活用して **マルチステップのリサーチ** を自動化する S
 
 * **幅 (breadth) × 深さ (depth)** を指定して検索範囲を制御
 * 進捗バー・現在のクエリをリアルタイム表示
+* クローラを **`SEARCH_PROVIDER` 環境変数** で切り替え（`firecrawl` / `tavily`）
 * 完了後は
+
   * 詳細 Markdown レポート
   * ひと言レベルの簡潔な回答
     のどちらかを選択可能
-* Firecrawl + OpenAI API キーを環境変数または `.env` で設定
+* Firecrawl / Tavily / OpenAI API キーを `.env` または環境変数で設定
+* **Weave + W\&B** で LLM コールをトレース（`WANDB_ENABLE_WEAVE=true`）
 
 ### 幅（breadth）について
+
 * 元のユーザー質問の調査切り口を増やす
 
 ### 深さ（depth）について
-* 調査で得られたfactに対し、フォローアップ（LLMでFollow-up質問生成）し再帰的に調査実施
+
+* 調査で得られた fact に対し、フォローアップ（LLM で Follow‑up 質問生成）し再帰的に調査実施
 
 ---
 
@@ -38,6 +43,7 @@ streamlit run app.py
 .
 ├── app.py                    # Streamlit フロントエンド
 ├── deep_research.py          # コアロジック（再帰リサーチ）
+├── crawler_factory.py        # Firecrawl / Tavily の切替ロジック
 ├── requirements.txt          # Pip 依存関係
 └── README.md                 # このファイル
 ```
@@ -60,14 +66,27 @@ source .venv/bin/activate  # Windows は .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. **環境変数を設定**  ‑ 例として `.env` を推奨
+3. **環境変数を設定**（`.env` 推奨）
 
 ```dotenv
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
-FIRECRAWL_KEY=fc-xxxxxxxxxxxxxxxx
+# ── 必須 ──────────────────────────
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SEARCH_PROVIDER=tavily            # firecrawl / tavily
+
+# Firecrawl を使う場合のみ
+FIRECRAWL_KEY=fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Tavily を使う場合のみ
+TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# ── Weave + W&B でトレースする場合 ──
+WANDB_ENABLE_WEAVE=true           # true / false
+WANDB_API_KEY=local-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+WANDB_BASE_URL=https://xxxxxxxx.wandb.io
+WANDB_PROJECT=deep-research
 ```
 
-   > `python‑dotenv` が自動で読み込みます。
+> `python‑dotenv` が自動で読み込みます。
 
 ---
 
@@ -90,10 +109,12 @@ streamlit run app.py
 
 ## よくあるエラー
 
-| エラー                               | 原因                    | 対処                                        |
-| --------------------------------- | --------------------- | ----------------------------------------- |
-| `ValueError: No API key provided` | API キーが読み込めていない       | `.env` のスペルを確認、`load_dotenv()` が最上部にあるか確認 |
-| `APIConnectionError`              | ネットワークから OpenAI へ到達不可 | プロキシ設定 (`HTTP(S)_PROXY`) を環境変数で渡す         |
+| エラー                                       | 原因                                                           | 対処                                           |
+| ----------------------------------------- | ------------------------------------------------------------ | -------------------------------------------- |
+| `ValueError: No API key provided`         | `OPENAI_API_KEY`, `FIRECRAWL_KEY`, `TAVILY_API_KEY` いずれかが未設定 | `.env` の値と `load_dotenv()` の位置を確認            |
+| `ValueError: Unsupported SEARCH_PROVIDER` | `SEARCH_PROVIDER` に `firecrawl` / `tavily` 以外を指定             | 変数値を修正                                       |
+| `APIConnectionError`                      | ネットワークから OpenAI / Firecrawl / Tavily へ到達不可                   | プロキシ設定 (`HTTP(S)_PROXY`) を環境変数で渡す            |
+| `wandb.errors.UsageError`                 | `WANDB_API_KEY` 未設定、または W\&B に接続不可                           | `WANDB_ENABLE_WEAVE=false` にするかキー／ URL 設定を確認 |
 
 ---
 
@@ -121,4 +142,5 @@ MIT License
 ## クレジット
 
 * **[OpenAI](https://openai.com/)** – LLM モデル
-* **[Firecrawl](https://firecrawl.dev/)** – Web クロール API
+* **[Firecrawl](https://firecrawl.dev/)** / **[Tavily](https://tavily.com/)** – Web クロール API
+* **[Weights & Biases](https://wandb.ai/)** – 実行トレース

@@ -5,9 +5,14 @@ Run with:
     streamlit run app.py
 """
 from __future__ import annotations
-
+import os
 import asyncio
 from contextlib import suppress
+import weave
+
+WANDB_ENABLE_WEAVE = os.getenv("WANDB_ENABLE_WEAVE", "false").lower() == "true"
+if WANDB_ENABLE_WEAVE:
+    weave.init(os.getenv("WANDB_PROJECT"))
 
 import streamlit as st
 

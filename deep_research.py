@@ -1,12 +1,15 @@
 import os
+import json
 import asyncio
 from typing import List, Optional, Callable, Dict
 from pydantic import BaseModel, Field
 from dataclasses import dataclass, field
 
 from openai import OpenAI
-from firecrawl import FirecrawlApp  # ← 公式 Python SDK
+from crawler_factory import get_crawler
 from datetime import datetime, timezone
+
+import weave
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,7 +19,8 @@ LLM_MODEL = os.getenv("LLM_MODEL", "o4-mini")
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
-firecrawl = FirecrawlApp(api_key=os.getenv("FIRECRAWL_KEY"))
+# firecrawl = FirecrawlApp(api_key=os.getenv("FIRECRAWL_KEY"))
+firecrawl = get_crawler()
 
 
 def system_prompt() -> str:
@@ -94,6 +98,8 @@ class FinalReport(BaseModel):
 class FinalAnswer(BaseModel):
     exactAnswer: str = Field(..., description="The final answer, make it short and concise, just the answer, no other text")
 
+
+@weave.op
 async def generate_serp_queries(
     query: str,
     num_queries: int = 3,
@@ -127,6 +133,8 @@ async def generate_serp_queries(
 
     return [entry.model_dump() for entry in parsed.queries][:num_queries]
 
+
+@weave.op
 async def process_serp_result(
     query: str,
     search_result,
@@ -159,6 +167,8 @@ async def process_serp_result(
         ],
         text_format=ProcResponse,
     )
+    # debug
+    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))\
 
     # 解析済み結果を取得
     parsed = resp.output_parsed
@@ -172,6 +182,7 @@ async def process_serp_result(
     }
 
 # 最終レポート作成
+@weave.op
 async def write_final_report(
     prompt: str,
     learnings: List[str],
@@ -192,11 +203,15 @@ async def write_final_report(
         ],
         text_format=FinalReport,
     )
+    # debug
+    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
+
     parsed = resp.output_parsed
     urls_section = "\n\n## Sources\n\n" + "\n".join(f"- {u}" for u in visited_urls)
     return parsed.reportMarkdown + urls_section
 
 # 最終回答作成
+@weave.op
 async def write_final_answer(
     prompt: str,
     learnings: List[str],
@@ -216,11 +231,14 @@ async def write_final_answer(
         ],
         text_format=FinalAnswer,
     )
+    # debug
+    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
+
     parsed = resp.output_parsed
     return parsed.exactAnswer
 
 
-
+@weave.op
 async def deep_research(
     query: str,
     breadth: int,

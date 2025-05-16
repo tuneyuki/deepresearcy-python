@@ -5,5 +5,7 @@
 openai
 pydantic
 firecrawl-py
+tavily-python
 streamlit
 python-dotenv
+weave
