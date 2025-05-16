@@ -19,8 +19,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "o4-mini")
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
-# firecrawl = FirecrawlApp(api_key=os.getenv("FIRECRAWL_KEY"))
-firecrawl = get_crawler()
+web_crawler = get_crawler()
 
 
 def system_prompt() -> str:
@@ -168,7 +167,7 @@ async def process_serp_result(
         text_format=ProcResponse,
     )
     # debug
-    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))\
+    # print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))\
 
     # 解析済み結果を取得
     parsed = resp.output_parsed
@@ -204,7 +203,7 @@ async def write_final_report(
         text_format=FinalReport,
     )
     # debug
-    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
+    # print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
 
     parsed = resp.output_parsed
     urls_section = "\n\n## Sources\n\n" + "\n".join(f"- {u}" for u in visited_urls)
@@ -232,7 +231,7 @@ async def write_final_answer(
         text_format=FinalAnswer,
     )
     # debug
-    print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
+    # print(json.dumps(resp.model_dump(), indent=2, ensure_ascii=False))
 
     parsed = resp.output_parsed
     return parsed.exactAnswer
@@ -282,7 +281,7 @@ async def deep_research(
     ----------
     1. `generate_serp_queries()` で次に検索すべきキーワードを LLM で生成  
     2. 各キーワードについて:  
-       2-a. `firecrawl.search()` でページをクロール  
+       2-a. `web_crawler.search()` でページをクロール  
        2-b. `process_serp_result()` で知見と次の調査質問を抽出  
        2-c. `on_progress()` に新しい知見を通知  
     3. `depth > 1` の場合は、質問リストをまとめた新しいクエリを作り再帰呼び出し  
@@ -320,8 +319,8 @@ async def deep_research(
 
     # ② 各クエリを処理する補助コルーチン ----------------
     async def handle_one(serp: Dict[str, str]) -> ResearchResult:
-        # Firecrawl 検索（同期 API）
-        search_result = firecrawl.search(serp["query"], limit=breadth)
+        # web_crawler 検索（同期 API）
+        search_result = web_crawler.search(serp["query"], limit=breadth)
 
         new_urls = [item["url"] for item in search_result.data]
 
