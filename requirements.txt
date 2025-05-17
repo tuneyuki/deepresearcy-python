@@ -9,3 +9,5 @@ tavily-python
 streamlit
 python-dotenv
 weave
+markdown
+xhtml2pdf
