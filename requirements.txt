@@ -9,3 +9,6 @@ tavily-python
 streamlit
 python-dotenv
 weave
+reportlab
+markdown
+weasyprint
