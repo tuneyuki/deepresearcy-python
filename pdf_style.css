@@ -1,0 +1,61 @@
+
+/* フォントの指定 */
+@font-face {
+    font-family: 'NotoSansJP';
+    src: url('NotoSansJP-Regular.ttf');
+}
+
+/* 全体のスタイル */
+html, body {
+    font-family: 'NotoSansJP', sans-serif !important;
+    font-size: 10pt;
+    line-height: 1.5;
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-all;
+    width: 595px; /* A4の幅 */
+}
+
+/* ブロック要素、インライン要素のスタイル */
+div, p, li, td, th, pre, code, span {
+    white-space: normal !important;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-all;
+    max-width: 100%;
+    width: 100%;
+}
+
+/* 表のスタイル設定 */
+table {
+    width: 100%;
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-all;
+    border-collapse: collapse;
+}
+
+table, th, td {
+    border: 1px solid #ccc;
+    padding: 4px;
+}
+
+/* 箇条書きの調整 */
+ul, ol {
+    margin-left: 20px;
+}
+
+/* 見出し調整 */
+h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    margin-top: 16px;
+    margin-bottom: 8px;
+}
+
+/* 画像の調整（PDF幅に収める） */
+img {
+    max-width: 100%;
+    height: auto;
+}

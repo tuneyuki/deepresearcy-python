@@ -10,6 +10,7 @@ import asyncio
 from contextlib import suppress
 from io import BytesIO
 from typing import Any, Optional
+import base64
 
 import weave
 import streamlit as st
@@ -35,12 +36,6 @@ from deep_research import (
     ResearchResult,
 )
 
-# ─────────── Japanese Font Registration ───────────
-# Ensure 'NotoSansJP-Regular.ttf' is placed in project root
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-pdfmetrics.registerFont(TTFont('NotoSansJP', 'NotoSansJP-Regular.ttf'))
-
 # ─────────── Session State Initialization ───────────
 if "history" not in st.session_state:
     st.session_state.history: list[dict[str, Any]] = []
@@ -51,36 +46,36 @@ if "last_report" not in st.session_state:
 if "last_output_type" not in st.session_state:
     st.session_state.last_output_type: Optional[str] = None
 
-# ─────────── Utility: Create PDF from Markdown ───────────
+# ─────────── Utility: Create PDF from Markdown using external CSS ───────────
 def create_pdf_from_md(md_text: str) -> BytesIO:
-    html_body = markdown.markdown(md_text)
-    css = '''
-    <style>
-    @page { size: A4; margin: 1cm; }
-    @font-face { font-family: 'NotoSansJP'; src: url('NotoSansJP-Regular.ttf'); }
-    body { font-family: 'NotoSansJP', sans-serif; line-height: 1.5; }
-    </style>
-    '''
-    html = f"<html><head><meta charset='utf-8'>{css}</head><body>{html_body}</body></html>"
+    html_body = markdown.markdown(md_text, extensions=["extra"])
+
+    # CSSファイルをシンプルに読み込み（global_cssは削除）
+    css_path = os.path.join(os.path.dirname(__file__), "pdf_style.css")
+    with open(css_path, encoding="utf-8") as f:
+        css_content = f.read()
+
+    style = f"<style>{css_content}</style>"
+    html = f"<html><head><meta charset='utf-8'>{style}</head><body>{html_body}</body></html>"
+
     buffer = BytesIO()
     pisa.CreatePDF(src=html, dest=buffer)
     buffer.seek(0)
     return buffer
 
+
+
 # ─────────── Sidebar: New Research, Settings & History ───────────
-# New research resets view
 if st.sidebar.button("🔍 新規調査開始", key="new_research"):
     st.session_state.selected_history = None
     st.session_state.last_report = None
     st.session_state.last_output_type = None
 
-# Settings in expander
 with st.sidebar.expander("設定オプション", expanded=True):
     breadth: int = st.slider("探索幅（検索のバリエーション）", 2, 5, 3)
     depth: int = st.slider("探索の深さ（調査結果をさらに深掘り）", 1, 3, 2)
     output_type: str = st.radio("Output", ["詳細レポート", "シンプル回答"], horizontal=True)
 
-# History links
 st.sidebar.header("調査履歴")
 if st.session_state.history:
     for idx, entry in enumerate(st.session_state.history):
@@ -98,7 +93,6 @@ st.markdown(
     "OpenAI o4-miniを使って、幅／深さをコントロールしながらウェブリサーチを行います。"
 )
 
-# Display past history if selected
 if st.session_state.selected_history is not None:
     entry = st.session_state.history[st.session_state.selected_history]
     st.subheader("📂 過去の調査結果")
@@ -113,7 +107,6 @@ if st.session_state.selected_history is not None:
         st.session_state.last_report = None
         st.session_state.last_output_type = None
 
-# Display ongoing or last report
 elif st.session_state.last_report is not None:
     st.subheader("📄 Final Report")
     st.markdown(st.session_state.last_report, unsafe_allow_html=True)
@@ -128,14 +121,10 @@ elif st.session_state.last_report is not None:
         )
     with col2:
         pdf_buffer = create_pdf_from_md(st.session_state.last_report)
-        st.download_button(
-            label="PDFファイルとして保存",
-            data=pdf_buffer,
-            file_name="final_report.pdf",
-            mime="application/pdf",
-        )
+        b64 = base64.b64encode(pdf_buffer.getvalue()).decode()
+        href = f'<a href="data:application/pdf;base64,{b64}" download="final_report.pdf">PDFファイルとして保存</a>'
+        st.markdown(href, unsafe_allow_html=True)
 
-# Otherwise show new research input
 else:
     query: str = st.text_input("何を調査したいですか？", key="query_input")
     if st.button("🚀 Start research", key="start_btn") and query.strip():
@@ -191,16 +180,11 @@ else:
         with st.spinner("📝 回答生成中です..."):
             final_md = _run_async(_summarise())
 
-        # Save report in session
         st.session_state.last_report = final_md
         st.session_state.last_output_type = output_type
-
-        # Append to history
         st.session_state.history.append({
             'query': query,
             'learnings': research_result.learnings,
             'report': final_md,
         })
-
-        # Display report after run
         st.rerun()
