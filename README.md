@@ -25,13 +25,100 @@ AI を活用して **マルチステップのリサーチ** を自動化する S
 
 * 調査で得られた fact に対し、フォローアップ（LLM で Follow‑up 質問生成）し再帰的に調査実施
 
+### 幅と深さの関係（幅4、深さ3の場合）
+
+* 深さが進むごとに幅は半減（4→2→1）します。
+
+```mermaid
+graph TD
+    %% 深さ1: 初期クエリ
+    Initial[質問]
+
+    %% 深さ1（幅=4）
+    subgraph Depth_1
+        direction LR
+        D2R1[調査 1]
+        D2R2[調査 2]
+        D2R3[調査 3]
+        D2R4[調査 4]
+    end
+
+    %% 深さ2（幅=2）
+    subgraph Depth_2
+        direction LR
+        D3R1[調査 1-1]
+        D3R2[調査 1-2]
+        D3R3[調査 2-1]
+        D3R4[調査 2-2]
+        D3R5[調査 3-1]
+        D3R6[調査 3-2]
+        D3R7[調査 4-1]
+        D3R8[調査 4-2]
+    end
+
+    %% 深さ3（幅=1）
+    subgraph Depth_3
+        direction LR
+        D4R1[調査 1-1-1]
+        D4R2[調査 1-2-1]
+        D4R3[調査 2-1-1]
+        D4R4[調査 2-2-1]
+        D4R5[調査 3-1-1]
+        D4R6[調査 3-2-1]
+        D4R7[調査 4-1-1]
+        D4R8[調査 4-2-1]
+    end
+
+    %% クエリ生成と調査の流れ（幅と深さを明記）
+    Initial -->|幅=4| D2R1
+    Initial -->|幅=4| D2R2
+    Initial -->|幅=4| D2R3
+    Initial -->|幅=4| D2R4
+
+    D2R1 -->|幅=2| D3R1
+    D2R1 -->|幅=2| D3R2
+    D2R2 -->|幅=2| D3R3
+    D2R2 -->|幅=2| D3R4
+    D2R3 -->|幅=2| D3R5
+    D2R3 -->|幅=2| D3R6
+    D2R4 -->|幅=2| D3R7
+    D2R4 -->|幅=2| D3R8
+
+    D3R1 -->|幅=1| D4R1
+    D3R2 -->|幅=1| D4R2
+    D3R3 -->|幅=1| D4R3
+    D3R4 -->|幅=1| D4R4
+    D3R5 -->|幅=1| D4R5
+    D3R6 -->|幅=1| D4R6
+    D3R7 -->|幅=1| D4R7
+    D3R8 -->|幅=1| D4R8
+
+    %% 最終結果統合
+    D2R1 --> FinalResult[最終結果統合・レポート作成]
+    D2R2 --> FinalResult
+    D2R3 --> FinalResult
+    D2R4 --> FinalResult
+    D3R1 --> FinalResult
+    D3R2 --> FinalResult
+    D3R3 --> FinalResult
+    D3R4 --> FinalResult
+    D3R5 --> FinalResult
+    D3R6 --> FinalResult
+    D3R7 --> FinalResult
+    D3R8 --> FinalResult
+    D4R1 --> FinalResult
+    D4R2 --> FinalResult
+    D4R3 --> FinalResult
+    D4R4 --> FinalResult
+    D4R5 --> FinalResult
+    D4R6 --> FinalResult
+    D4R7 --> FinalResult
+    D4R8 --> FinalResult
+```
+
 ---
 
-## デモ
-
-```bash
-streamlit run app.py
-```
+## サンプル画面
 
 ![Deep Research Prototype](./public/images/demo.png)
 
@@ -144,3 +231,5 @@ MIT License
 * **[OpenAI](https://openai.com/)** – LLM モデル
 * **[Firecrawl](https://firecrawl.dev/)** / **[Tavily](https://tavily.com/)** – Web クロール API
 * **[Weights & Biases](https://wandb.ai/)** – 実行トレース
+
+

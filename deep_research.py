@@ -9,8 +9,6 @@ from openai import OpenAI
 from crawler_factory import get_crawler
 from datetime import datetime, timezone
 
-import weave
-
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -23,9 +21,6 @@ web_crawler = get_crawler()
 
 
 def system_prompt() -> str:
-    """
-    Returns a system prompt for the agent, including the current UTC timestamp.
-    """
     now = datetime.now(timezone.utc).isoformat()
     return f"""You are an expert researcher. Today is {now}. Follow these instructions when responding:
 - You may be asked to research subjects that are after your knowledge cutoff; assume the user is right when presented with news.
@@ -38,7 +33,15 @@ def system_prompt() -> str:
 - Provide detailed explanations; I'm comfortable with lots of detail.
 - Value good arguments over authorities; the source is irrelevant.
 - Consider new technologies and contrarian ideas, not just the conventional wisdom.
-- You may use high levels of speculation or prediction; just flag it for me."""
+- You may use high levels of speculation or prediction; just flag it for me.
+
+IMPORTANT:
+- When writing a final report, you must use **only** the provided <learnings> content.
+- Do not add any information that is not explicitly present in the <learnings> list.
+- Do not use prior knowledge, outside facts, assumptions, or speculation in final reports.
+- All claims, arguments, and statements in the report must be directly traceable to the provided learnings.
+"""
+
 
 
 @dataclass
@@ -83,11 +86,14 @@ class QueryList(BaseModel):
 class ProcResponse(BaseModel):
     learnings: List[str] = Field(
         ...,
-        description="List of learnings, max of the requested number"
+        description=(
+            "Detailed and self-contained insights extracted from the SERP contents. "
+            "Each learning should be as informative as possible, include context, names, dates, numbers, and ideally be understandable on its own."
+        )
     )
     followUpQuestions: List[str] = Field(
         ...,
-        description="List of follow-up questions to research the topic further, max of 3."
+        description="List of follow-up questions to research the topic further, max of the requested number."
     )
 
 # ③ 最終レポート用のスキーマ
@@ -98,7 +104,57 @@ class FinalAnswer(BaseModel):
     exactAnswer: str = Field(..., description="The final answer, make it short and concise, just the answer, no other text")
 
 
-@weave.op
+# ④ フォローアップ質問のスキーマ
+class FollowUpQuestion(BaseModel):
+    questions: List[str] = Field(
+        ...,
+        description="Follow-up questions to clarify the research direction",
+    )
+
+# ---------------------------------------------------------------------------
+# generate_followup
+# ---------------------------------------------------------------------------
+async def generate_followup(
+    query: str,
+    num_questions: int = 3,
+) -> List[str]:
+    """
+    初回クエリから最大 `num_questions` 件のフォローアップ質問を生成して返す。
+    """
+    fowllowup_system_prompt = (
+        "You are an expert research assistant. "
+        "Given a user's initial query you suggest concise follow-up questions "
+        "that help clarify the research direction."
+    )
+
+    prompt = (
+        f"Given the following query from the user, ask some follow up questions "
+        f"to clarify the research direction. Return a maximum of {num_questions} "
+        f"questions, but feel free to return less if the original query is clear: "
+        f"\n{query}"
+    )
+
+    # structured output を _FeedbackSchema で指定
+    resp = client.responses.parse(
+        model=LLM_MODEL,
+        reasoning={"effort": "medium"},
+        input=[
+            {"role": "system", "content": fowllowup_system_prompt},
+            {"role": "user",   "content": prompt},
+        ],
+        text_format=FollowUpQuestion,
+    )
+
+    parsed = resp.output_parsed        # ← Pydantic で検証済み
+    return parsed.questions[:num_questions]
+
+# ---------------------------------------------------------------------------
+# generate_followup 同期ラッパー（Streamlit など同期環境向け）
+# ---------------------------------------------------------------------------
+def generate_followup_sync(query: str, num_questions: int = 3) -> List[str]:
+    return asyncio.run(generate_followup(query, num_questions))
+
+
 async def generate_serp_queries(
     query: str,
     num_queries: int = 3,
@@ -133,7 +189,6 @@ async def generate_serp_queries(
     return [entry.model_dump() for entry in parsed.queries][:num_queries]
 
 
-@weave.op
 async def process_serp_result(
     query: str,
     search_result,
@@ -148,13 +203,18 @@ async def process_serp_result(
     prompt = (
         f"Given the following contents from a SERP search for the query <query>{query}</query>, "
         f"generate a list of learnings from the contents. Return a maximum of {num_learnings} "
-        "learnings, but feel free to return less if the contents are clear. Make sure each learning "
-        "is unique and not similar to each other. The learnings should be concise and to the point, "
-        "as detailed and information dense as possible. Make sure to include any entities like people, "
-        "places, companies, products, things, etc in the learnings, as well as any exact metrics, "
-        "numbers, or dates. The learnings will be used to research the topic further.\n\n"
+        "learnings, but feel free to return less if the contents are clear.\n\n"
+        "Each learning should:\n"
+        "- Be unique and non-overlapping\n"
+        "- Be detailed and explanatory, not just short summaries\n"
+        "- Include context such as who/what/when/why/how\n"
+        "- Mention relevant entities (e.g., people, organizations, events)\n"
+        "- Include metrics, dates, or quotes where relevant\n"
+        "- Be self-contained so it makes sense without reading the source\n\n"
+        "The output will help guide deeper research and should be as informative as possible.\n\n"
         f"<contents>\n{wrapped}\n</contents>"
     )
+
 
     # structured output を Pydantic モデルで指定
     resp = client.responses.parse(
@@ -181,7 +241,6 @@ async def process_serp_result(
     }
 
 # 最終レポート作成
-@weave.op
 async def write_final_report(
     prompt: str,
     learnings: List[str],
@@ -189,8 +248,11 @@ async def write_final_report(
 ) -> str:
     learnings_str = "\n".join(f"<learning>\n{l}\n</learning>" for l in learnings)
     user_message = (
-        f"Given the following prompt from the user, write a final report on the topic using the learnings from research. Write a final report with prompt language. Make it as detailed as possible, aim for 3 or more pages, include ALL the learnings from research:\n\n"
-        f"<prompt>{prompt}</prompt>\n\n"
+        f"Given the following prompt from the user, write a final report using ONLY the provided learnings. "
+        "DO NOT add any additional information, assumptions, or external knowledge. "
+        "Use only the facts present in the <learnings> tags. "
+        "Do not generalize beyond what is explicitly stated.\n\n"
+        f"<prompt>\n{prompt}\n</prompt>\n\n"
         f"<learnings>\n{learnings_str}\n</learnings>"
     )
     resp = client.responses.parse(
@@ -210,14 +272,17 @@ async def write_final_report(
     return parsed.reportMarkdown + urls_section
 
 # 最終回答作成
-@weave.op
 async def write_final_answer(
     prompt: str,
     learnings: List[str],
 ) -> str:
     learnings_str = "\n".join(f"<learning>\n{l}\n</learning>" for l in learnings)
     user_message = (
-        f"Given the following prompt from the user, write a final answer on the topic using the learnings from research. Write a final report with prompt language. Follow the format specified in the prompt. Do not yap or babble or include any other text than the answer besides the format specified in the prompt. Keep the answer as concise as possible - usually it should be just a few words or maximum a sentence. Try to follow the format specified in the prompt.\n\n"
+        f"Given the following prompt from the user, write a final answer on the topic using the learnings from research. "
+        "Write a final report with prompt language. Follow the format specified in the prompt. "
+        "Do not yap or babble or include any other text than the answer besides the format specified in the prompt. "
+        "Keep the answer as concise as possible - usually it should be just a few words or maximum a sentence. "
+        "Try to follow the format specified in the prompt.\n\n"
         f"<prompt>{prompt}</prompt>\n\n"
         f"<learnings>\n{learnings_str}\n</learnings>"
     )
@@ -237,7 +302,6 @@ async def write_final_answer(
     return parsed.exactAnswer
 
 
-@weave.op
 async def deep_research(
     query: str,
     breadth: int,
