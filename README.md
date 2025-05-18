@@ -16,6 +16,7 @@ AI を活用して **マルチステップのリサーチ** を自動化する S
     のどちらかを選択可能
 * Firecrawl / Tavily / OpenAI API キーを `.env` または環境変数で設定
 * **Weave + W\&B** で LLM コールをトレース（`WANDB_ENABLE_WEAVE=true`）
+* 調査結果はPDFで保存可能
 
 ### 幅（breadth）について
 
@@ -131,6 +132,7 @@ graph TD
 ├── app.py                    # Streamlit フロントエンド
 ├── deep_research.py          # コアロジック（再帰リサーチ）
 ├── crawler_factory.py        # Firecrawl / Tavily の切替ロジック
+├── pdf_style.css             # PDF出力時の整形CSS
 ├── requirements.txt          # Pip 依存関係
 └── README.md                 # このファイル
 ```
@@ -142,7 +144,8 @@ graph TD
 1. **リポジトリをクローン**
 
 ```bash
-cd deep‑research‑assistant
+git clone https://github.com/tuneyuki/deepresearcy-python.git
+cd deepresearcy-python
 ```
 
 2. **仮想環境を作成 & 依存インストール**
@@ -232,4 +235,8 @@ MIT License
 * **[Firecrawl](https://firecrawl.dev/)** / **[Tavily](https://tavily.com/)** – Web クロール API
 * **[Weights & Biases](https://wandb.ai/)** – 実行トレース
 
+
+## 既知の不具合
+* 日本語の調査レポートをPDF保存で、1行の文字数が多い場合に、行が折り返されず見切れてしまう。（英語の場合はちゃんと折り返される）
+* 調査履歴が、ブラウザリロードで消えてしまう
 

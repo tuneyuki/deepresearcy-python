@@ -82,7 +82,6 @@ with st.sidebar.expander("⚙️ 設定オプション", expanded=True):
     depth: int = st.slider("探索の深さ（調査結果をさらに深掘り）", 1, 3, 2)
     output_type: str = st.radio("Output", ["詳細レポート", "シンプル回答"], horizontal=True)
 
-st.sidebar.markdown("---")
 # ─────────── Sidebar: 履歴メニュー ───────────
 with st.sidebar.expander("📂 履歴メニュー", expanded=True):
     history_json = json.dumps(st.session_state.history, ensure_ascii=False, indent=2)
@@ -121,6 +120,15 @@ with st.sidebar.expander("📂 履歴メニュー", expanded=True):
         st.success("履歴をクリアしました！")
         st.rerun()
 
+# ─────────── READMEトグル ───────────
+with st.sidebar:
+    if "show_readme" not in st.session_state:
+        st.session_state["show_readme"] = False
+
+    if st.button("📖 README（使い方）", key="show_readme_button"):
+        st.session_state.show_readme = True
+
+
 st.sidebar.markdown("---")
 # ─────────── Sidebar: 調査履歴 ───────────
 st.sidebar.header("調査履歴")
@@ -133,16 +141,6 @@ if st.session_state.history:
             st.session_state.last_output_type = None
 else:
     st.sidebar.write("(履歴なし)")
-
-st.sidebar.markdown("---")
-# ─────────── READMEトグル ───────────
-with st.sidebar:
-    if "show_readme" not in st.session_state:
-        st.session_state["show_readme"] = False
-
-    if st.button("📖 README（使い方）", key="show_readme_button"):
-        st.session_state.show_readme = True
-
 
 
 # ─────────── README表示 ───────────
