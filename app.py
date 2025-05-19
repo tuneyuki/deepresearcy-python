@@ -162,11 +162,34 @@ if st.session_state.get("show_readme", False):
 
 ---
 
-## 注意！履歴の保存について
+## ⚠️ 注意！履歴の保存について
 
 - 履歴は、ブラウザを閉じたら消えてしまうので、必要に応じて「履歴をファイルに保存する」ボタンで保存してください。
 - 履歴はJSON形式で保存されます。履歴を読み込む際は、同じ形式のJSONファイルを指定してください。
+                
+---
+## 📊 幅と深さのイメージ（幅４、深さ３の場合）
+* 幅は調査の切り口、深さは調査の深掘りを表します。
+* 深さが進むごとに幅は半減（4→2→1）します。
     """)
+    # ここで chart.svg を表示
+    def render_svg(svg_text: str) -> None:
+        """Renders the given svg string."""
+        b64 = base64.b64encode(svg_text.encode('utf-8')).decode("utf-8")
+        html = f'<img src="data:image/svg+xml;base64,{b64}"/>'
+        st.write(html, unsafe_allow_html=True)
+
+    chart_path = os.path.join(os.path.dirname(__file__), "chart.svg")
+    if os.path.exists(chart_path):
+        try:
+            with open(chart_path, "r", encoding="utf-8") as f:
+                svg_text = f.read()
+            render_svg(svg_text)
+        except Exception:
+            st.warning("chart.svg の読み込みに失敗しました。")
+    else:
+        st.warning("chart.svg が見つかりませんでした。プロジェクトディレクトリに配置してください。")
+
     if st.button("🔙 戻る", key="readme_back"):
         st.session_state["show_readme"] = False
         st.rerun()
