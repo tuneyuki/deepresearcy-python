@@ -17,11 +17,43 @@ import streamlit.components.v1 as components
 import markdown
 from xhtml2pdf import pisa
 
+import sys
+import logging
+
+
+# ──── Azure AppService 向けログ設定 ────
+# ログをすべて stdout に流す  
+root_logger = logging.getLogger()  
+root_logger.setLevel(logging.INFO)
+
+# 既存ハンドラをクリア（重複防止のため）  
+for h in list(root_logger.handlers):
+    root_logger.removeHandler(h)
+
+# stdout 用ハンドラ  
+sh = logging.StreamHandler(sys.stdout)
+sh.setLevel(logging.INFO)
+sh.setFormatter(
+    logging.Formatter("%(message)s")
+)
+root_logger.addHandler(sh)
+
+logger = logging.getLogger(__name__)
+
 # ─────────── Page Configuration ───────────
 # Must be first Streamlit call
 st.set_page_config(page_title="Deep Research Prototype", layout="wide")
 if 'history' not in st.session_state:
     st.session_state.history = []  # Always initialize
+
+
+# ─────────── ユーザー情報を取得 ───────────
+# Eメールアドレスがこのヘッダに格納される。
+# logger.info(
+#     "DEBUG | "
+#     f"username={st.context.headers.get('X-Ms-Client-Principal-Name')}"
+# )
+
 
 # ─────────── Weave Initialization ───────────
 WANDB_ENABLE_WEAVE = os.getenv("WANDB_ENABLE_WEAVE", "false").lower() == "true"
@@ -37,6 +69,8 @@ from deep_research import (
     ResearchProgress,
     ResearchResult,
     generate_followup_sync, # sync version
+    # judge_followup_required,
+    # followup_research,
 )
 
 # ─────────── Session State Initialization ───────────
@@ -78,12 +112,17 @@ if st.sidebar.button("🔍 新規調査開始", key="new_research"):
     st.session_state.show_readme = False
 
 with st.sidebar.expander("⚙️ 設定オプション", expanded=True):
-    breadth: int = st.slider("探索幅（検索のバリエーション）", 2, 5, 3)
-    depth: int = st.slider("探索の深さ（調査結果をさらに深掘り）", 1, 3, 2)
+    breadth: int = st.slider("探索幅（検索のバリエーション）", 3, 5, 4)
+    depth: int = st.slider("探索の深さ（調査結果をさらに深掘り）", 2, 4, 3)
+    # enable_followup: bool = st.checkbox(
+    #     "自動追加調査を許容する",
+    #     value=False,
+    #     help="設定した調査数が不十分な場合、自動で追加の深掘り調査を行います。",
+    # )
     output_type: str = st.radio("Output", ["詳細レポート", "シンプル回答"], horizontal=True)
 
 # ─────────── Sidebar: 履歴メニュー ───────────
-with st.sidebar.expander("📂 履歴メニュー", expanded=True):
+with st.sidebar.expander("📂 履歴メニュー", expanded=False):
     history_json = json.dumps(st.session_state.history, ensure_ascii=False, indent=2)
     st.download_button(
         label="履歴をファイルに保存する",
@@ -148,24 +187,15 @@ if st.session_state.get("show_readme", False):
     st.title("📖 Deep Research 使い方ガイド")
     st.markdown("""
 ## 概要
-このアプリは、OpenAIの最新モデル（o4-mini）を使って、構造的かつ深いWeb調査を行うツールです。
+このアプリは、OpenAIの最新モデル（o3）を使って、構造的かつ深いWeb調査を行うツールです。
 
 ---
 
-## 📝 基本的な流れ
-
-1. **「何を調査したいですか？」に入力**
-2. **💡 フォローアップ質問を生成** をクリック
-3. **補足があれば記入**
-4. **🚀 この内容で調査する** をクリック
-5. **最終レポートが表示されます**
-
----
-
-## ⚠️ 注意！履歴の保存について
+## ⚠️ 注意！既知の問題
 
 - 履歴は、ブラウザを閉じたら消えてしまうので、必要に応じて「履歴をファイルに保存する」ボタンで保存してください。
-- 履歴はJSON形式で保存されます。履歴を読み込む際は、同じ形式のJSONファイルを指定してください。
+- 調査結果をPDFで出力する際、長い文章の場合、ページ内に収まりきらず途切れてしまいます。（英語は途中で改行されるのでこの問題はありません）
+- READMEを表示中に、調査結果のボタンを押しても画面遷移しないので、READMEを閉じてからボタンを押してください。
                 
 ---
 ## 📊 幅と深さのイメージ（幅４、深さ３の場合）
@@ -200,7 +230,7 @@ if st.session_state.get("show_readme", False):
 
 # ─────────── Main Page ───────────
 st.title("🔍 Deep Research prototype")
-st.markdown("OpenAI o4-miniを使って、幅／深さをコントロールしながらウェブリサーチを行います。")
+st.markdown("OpenAI o3を使って、幅／深さをコントロールしながらウェブリサーチを行います。")
 # Guard against invalid index
 if st.session_state.selected_history is not None and 0 <= st.session_state.selected_history < len(st.session_state.history):
     entry = st.session_state.history[st.session_state.selected_history]
@@ -244,7 +274,7 @@ elif st.session_state.last_report is not None:
             height=80,
         )
     with col2:
-        pdf_buffer = create_pdf_from_md(entry['report'])
+        pdf_buffer = create_pdf_from_md(st.session_state.last_report)
         b64 = base64.b64encode(pdf_buffer.getvalue()).decode()
         st.markdown(
             f"""
@@ -267,9 +297,12 @@ else:
     if "followup_answer" not in st.session_state:
         st.session_state.followup_answer = ""
 
-    query: str = st.text_input("何を調査したいですか？", key="query_input")
+    # query: str = st.text_input("何を調査したいですか？", key="query_input")
+    with st.form("followup_form"):
+        query: str = st.text_input("何を調査したいですか？", key="query_input")
+        submitted = st.form_submit_button("💡 フォローアップ質問を生成")
 
-    if st.button("💡 フォローアップ質問を生成") and query.strip():
+    if submitted and query.strip():
         st.session_state.pending_query = query
         st.session_state.followup_answer = ""
         st.session_state.trigger_research = False
@@ -280,16 +313,37 @@ else:
         st.subheader("🧩 フォローアップ質問")
         for i, q in enumerate(st.session_state.followup_questions, 1):
             st.markdown(f"**Q{i}.** {q}")
-        st.session_state.followup_answer = st.text_area(
-            "💬 上記を参考に自由に補足してください（任意）",
-            value=st.session_state.followup_answer,
-            key="followup_answer_input"
-        )
-        if st.button("🚀 この内容で調査する", key="start_with_followup"):
+        with st.form("answer_form"):
+            answer = st.text_area(
+                "💬 上記を参考に自由に補足してください（任意）",
+                value=st.session_state.get("followup_answer", ""),
+                key="followup_answer_input",
+                height=150,
+            )
+            submitted_research = st.form_submit_button("🚀 この内容で調査する")
+
+        st.session_state.followup_answer = answer.strip()
+
+        if submitted_research:
             st.session_state.trigger_research = True
 
     if st.session_state.trigger_research:
         st.session_state.trigger_research = False  # リセット
+
+        # Azure のトレースログ（stdout）に出力
+        # Azure AppService では、標準出力に出力されたログは自動的に収集される
+        # AppServiceでEntraID認証を使用している場合、X-Ms-Client-Principal-Name ヘッダにユーザー名が格納される
+        log_obj = {
+            "event": "Research start",
+            "user_id": st.context.headers.get('X-Ms-Client-Principal-Name'),
+            "query": st.session_state.pending_query,
+            "followups": st.session_state.followup_questions,
+            "answer": st.session_state.followup_answer,
+            "breadth": breadth,
+            "depth": depth,
+            "output": output_type
+        }
+        logger.info(json.dumps(log_obj, ensure_ascii=False))
 
         # query + followup answer を組み合わせ
         base_query = st.session_state.pending_query
@@ -341,12 +395,26 @@ else:
                 new_loop.close()
 
         async def _driver() -> ResearchResult:
-            return await deep_research(
+            # ① まず通常のリサーチ
+            base_result = await deep_research(
                 query=combined_query,
                 breadth=breadth,
                 depth=depth,
                 on_progress=_on_progress,
             )
+
+            # ② 自動追加調査が ON なら breadth=2, depth=2 で再実行
+            # if enable_followup:
+            #     return await followup_research(
+            #         query=combined_query,            # 元のクエリそのまま
+            #         learnings=base_result.learnings, # 既存 learnings を継承
+            #         visited_urls=base_result.visited_urls,
+            #         on_progress=_on_progress,        # 進捗バー再利用
+            #     )
+
+            # 追加調査しない場合はそのまま返す
+            return base_result
+
         
         research_result = _run_async(_driver())
 
