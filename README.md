@@ -161,7 +161,7 @@ pip install -r requirements.txt
 ```dotenv
 # ── 必須 ──────────────────────────
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SEARCH_PROVIDER=tavily            # firecrawl / tavily
+SEARCH_PROVIDER=tavily            # firecrawl / tavily / openai
 
 # Firecrawl を使う場合のみ
 FIRECRAWL_KEY=fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
