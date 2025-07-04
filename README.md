@@ -1,6 +1,6 @@
 # Deep Research Assistant
 
-AI を活用して **マルチステップのリサーチ** を自動化する Streamlit アプリです。Firecrawl / Tavily で Web をクロールし、OpenAI モデルで SERP 生成・知見抽出・レポート作成までを行います。
+AI を活用して **マルチステップのリサーチ** を自動化する Streamlit アプリです。Firecrawl / Tavily / openai で Web をクロールし、OpenAI モデルで SERP 生成・知見抽出・レポート作成までを行います。
 
 ---
 
@@ -131,7 +131,7 @@ graph TD
 .
 ├── app.py                    # Streamlit フロントエンド
 ├── deep_research.py          # コアロジック（再帰リサーチ）
-├── crawler_factory.py        # Firecrawl / Tavily の切替ロジック
+├── crawler_factory.py        # Firecrawl / Tavily / openaiの切替ロジック
 ├── pdf_style.css             # PDF出力時の整形CSS
 ├── requirements.txt          # Pip 依存関係
 └── README.md                 # このファイル
@@ -161,7 +161,7 @@ pip install -r requirements.txt
 ```dotenv
 # ── 必須 ──────────────────────────
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SEARCH_PROVIDER=tavily            # firecrawl / tavily
+SEARCH_PROVIDER=tavily            # firecrawl / tavily / openai
 
 # Firecrawl を使う場合のみ
 FIRECRAWL_KEY=fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

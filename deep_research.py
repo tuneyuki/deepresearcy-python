@@ -8,12 +8,20 @@ from dataclasses import dataclass, field
 from openai import OpenAI
 from crawler_factory import get_crawler
 from datetime import datetime, timezone
-
 from dotenv import load_dotenv
 load_dotenv()
 
-# 「o4-mini」をデフォルトに、環境変数で上書き可
-LLM_MODEL = os.getenv("LLM_MODEL", "o4-mini")
+import logging
+
+# Azure App ServiceではINFOレベル以上を推奨
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s"
+)
+logger = logging.getLogger("app")  # 名前は任意
+# ---------------------------------------------------------------------------
+# 「o3s」をデフォルトに、環境変数で上書き可
+LLM_MODEL = os.getenv("LLM_MODEL", "o3")
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
@@ -64,7 +72,14 @@ class ResearchResult:
 class QueryEntry(BaseModel):
     query: str = Field(
         ...,
-        description="The SERP query"
+        # description="The search query"
+        description = (
+            "State the search request as ONE complete sentence, starting with a subject and verb "
+            "if appropriate, but omit personal pronouns (e.g., 'I') and phrases like 'search for' or 'look for'. "
+            "The result should read naturally as a search query or document title. "
+            "Write in the SAME language as the user's question."
+        )
+
     )
     researchGoal: str = Field(
         ...,
@@ -79,7 +94,7 @@ class QueryEntry(BaseModel):
 class QueryList(BaseModel):
     queries: List[QueryEntry] = Field(
         ...,
-        description="List of SERP queries, max of the requested number"
+        description="List of search queries, max of the requested number"
     )
 
 # ② process_serp_result 用のスキーマ
@@ -87,7 +102,7 @@ class ProcResponse(BaseModel):
     learnings: List[str] = Field(
         ...,
         description=(
-            "Detailed and self-contained insights extracted from the SERP contents. "
+            "Detailed and self-contained insights extracted from the search contents. "
             "Each learning should be as informative as possible, include context, names, dates, numbers, and ideally be understandable on its own."
         )
     )
@@ -109,6 +124,13 @@ class FollowUpQuestion(BaseModel):
     questions: List[str] = Field(
         ...,
         description="Follow-up questions to clarify the research direction",
+    )
+
+
+class LLMJudgement(BaseModel):
+    followup_required: bool = Field(
+        ...,
+        description="Whether follow-up research is needed based on the query and learnings"
     )
 
 # ---------------------------------------------------------------------------
@@ -162,13 +184,13 @@ async def generate_serp_queries(
 ) -> List[Dict[str, str]]:
     
     prompt = (
-        f"Given the following prompt from the user, generate a list of SERP queries to research the topic.\n"
-        f"Return a maximum of {num_queries} queries, but feel free to return less if the original prompt is clear.\n"
-        f"Make sure each query is unique and not similar to each other: <prompt>{query}</prompt>\n\n"
+        f"ユーザーからの以下のプロンプトに基づき、このトピックを調査するための検索クエリをリストアップして。\n"
+        f"最大で{num_queries}個までクエリを返して。 ただし、元のプロンプトが明確な場合は、それより少なくても構わない。\n"
+        f"それぞれのクエリがユニークで、互いに類似しないようにして: <prompt>{query}</prompt>\n\n"
     )
     if learnings:
         prompt += (
-            "Here are some learnings from previous research, use them to generate more specific queries:\n"
+            "以前の調査から得られたlearningsを以下に示します。これらを参考に、learningsと重複しない検索クエリを作成して:\n"
             + "\n".join(learnings)
         )
 
@@ -248,9 +270,11 @@ async def write_final_report(
 ) -> str:
     learnings_str = "\n".join(f"<learning>\n{l}\n</learning>" for l in learnings)
     user_message = (
-        f"Given the following prompt from the user, write a final report using ONLY the provided learnings. "
-        "DO NOT add any additional information, assumptions, or external knowledge. "
-        "Use only the facts present in the <learnings> tags. "
+        f"Based on the following user prompt, write a final report using ONLY the information provided in the <learnings> tags. "
+        "Do NOT add any additional information, assumptions, or external knowledge. "
+        "However, if the learnings are fragmented or incomplete, you may connect them logically to create a coherent structure. "
+        "Organize the report with a clear and consistent structure, including appropriate sections such as Introduction, Background, Summary of Findings, Discussion, and Conclusion. "
+        "Where relevant, merge similar points or clarify relationships such as chronology or causality. "
         "Do not generalize beyond what is explicitly stated.\n\n"
         f"<prompt>\n{prompt}\n</prompt>\n\n"
         f"<learnings>\n{learnings_str}\n</learnings>"
@@ -384,6 +408,11 @@ async def deep_research(
     # ② 各クエリを処理する補助コルーチン ----------------
     async def handle_one(serp: Dict[str, str]) -> ResearchResult:
         # web_crawler 検索（同期 API）
+        process_id = os.getpid()
+        query_str = serp["query"]
+        logger.info(
+            f"SEARCH QUERY: '{query_str}' | pid={process_id}"
+        )
         search_result = web_crawler.search(serp["query"], limit=breadth)
 
         new_urls = [item["url"] for item in search_result.data]
@@ -448,6 +477,97 @@ async def deep_research(
 
     return ResearchResult(final_learnings, final_urls)
 
+
+
+
+def judge_followup_required(
+    query: str,
+    learnings: Optional[List[str]] = None,
+) -> bool:
+    """
+    フォローアップリサーチが必要かどうかを判断する。
+
+    パラメータ
+    ----------
+    query : str
+        ユーザープロンプト。
+    learnings : list[str] | None
+        これまでに得た知見の蓄積。
+
+    戻り値
+    ------
+    bool
+        フォローアップリサーチが必要なら True、不要なら False。
+    """
+    if not learnings:
+        return True
+
+    # OpenAIを使って、queryとlearningsをInputし。followup researchが必要かを判断する。
+    prompt = (
+        f"Below is the user's research question followed by the learnings collected so far.\n"
+        f"**Question:** {query}\n\n"
+        "### Current Learnings\n"
+        + "\n".join(f"- {l}" for l in learnings) + "\n\n"
+        "### Task\n"
+        "1. Critically evaluate whether the learnings already provide a complete and well-supported answer to the question.\n"
+        "2. Examine the coverage from multiple angles (e.g., factual accuracy, depth, timeliness, opposing viewpoints, remaining unknowns).\n"
+        "3. Decide if additional research is required.\n\n"
+        "### Response format\n"
+        "Return **exactly one word** (case-insensitive):\n"
+        "- `yes`  → Follow-up research is still needed.\n"
+        "- `no`   → The learnings are sufficient; no further research is required."
+    )
+
+
+    # structured output を Pydantic モデルで指定
+    resp = client.responses.parse(
+        model=LLM_MODEL,
+        reasoning={"effort": "medium"},
+        input=[
+            {"role": "system", "content": system_prompt()},
+            {"role": "user",   "content": prompt},
+        ],
+        text_format=LLMJudgement
+    )
+    
+    parsed = resp.output_parsed
+    return parsed.followup_required
+
+
+async def followup_research(
+    query: str,
+    learnings: Optional[List[str]] = None,
+    visited_urls: Optional[List[str]] = None,
+    on_progress: Optional[Callable[[ResearchProgress], None]] = None,
+) -> ResearchResult:
+    """
+    フォローアップリサーチを実行し、追加の知見と訪問したURLを返す。
+
+    パラメータ
+    ----------
+    learnings : list[str] | None
+        これまでに得た知見の蓄積。再帰で下層へ渡し、最後に重複除去して返す。
+    visited_urls : list[str] | None
+        既にクロールした URL の集合。最終結果用なので途中処理では使わない。
+
+    戻り値
+    ------
+    ResearchResult
+        - `learnings` : 最終的な知見（重複除去済み）  
+        - `visited_urls` : 参照した全 URL（重複除去済み）
+    """
+    learnings = learnings or []
+    visited_urls = visited_urls or []
+
+    # フォローアップリサーチを実行
+    return await deep_research(
+        query=query,
+        breadth=2,
+        depth=2,
+        learnings=learnings,
+        visited_urls=visited_urls,
+        on_progress=on_progress,
+    )
 
 
 # CLIエントリーポイント
